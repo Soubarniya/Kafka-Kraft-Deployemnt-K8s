@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+spec:
+  serviceName: kafka-headless
+  replicas: 3 # Adjust replicas as needed
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:latest
+          imagePullPolicy: Always
+          command:
+            - sh
+            - -exc
+            - |
+              export CLUSTER_ID="6PMpHYL9QkeyXRj9Nrp4KA" && \
+              export KAFKA_NODE_ID=${HOSTNAME##*-} && \
+              export KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${POD_NAME}.kafka-headless.default.svc.cluster.local:9092 && \
+              export KAFKA_CONTROLLER_QUORUM_VOTERS="0@kafka-0.kafka-headless.default.svc.cluster.local:29093,1@kafka-1.kafka-headless.default.svc.cluster.local:29093,2@kafka-2.kafka-headless.default.svc.cluster.local:29093" && \
+              exec /etc/confluent/docker/run
+          env:
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093"
+            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+            - name: KAFKA_PROCESS_ROLES
+              value: "broker,controller"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_NUM_PARTITIONS
+              value: "3"
+            - name: KAFKA_DEFAULT_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_MIN_INSYNC_REPLICAS
+              value: "2"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: KAFKA_CFG_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+          ports:
+            - name: plaintext
+              containerPort: 9092
+            - name: controller
+              containerPort: 29093
+          volumeMounts:
+            - name: kafka-pvc
+              mountPath: /var/lib/kafka
+            - name: config-volume
+              mountPath: /etc/kafka/config
+      volumes:
+        # - name: kafka-pv-1
+        #   persistentVolumeClaim:
+        #     claimName: kafka
+        - name: config-volume
+          configMap:
+            name: kafka-config
+  volumeClaimTemplates:
+    - metadata:
+        name: kafka-pvc
+        annotations:
+          volume.beta.kubernetes.io/storage-class: kafka-storage-class
+      spec:
+        storageClassName: kafka-storage-class
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
